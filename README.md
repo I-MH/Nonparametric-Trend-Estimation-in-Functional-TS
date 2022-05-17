@@ -2,7 +2,7 @@
 
 These are R codes that implements the method described in: 
 
-Nonparametric trend estimation in functional time series with application to annual mortality rates by [Mart\'nez-Hern\'andez, I., and Genton, M. G. (2020)](https://doi.org/10.1111/biom. 13353)
+Nonparametric trend estimation in functional time series with application to annual mortality rates by [Martínez-Hernández, I., and Genton, M. G. (2020)](https://doi.org/10.1111/biom.13353)
 
 
 ## Example
