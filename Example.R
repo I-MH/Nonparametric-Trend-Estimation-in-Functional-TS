@@ -12,6 +12,8 @@ set.seed(1985)
 Data <- sim.FTS(N=N,m=m,norm.op=norm.op, rangeval = c(0,1))
 
 # plot data simulated
+library(plot3D)
+
 t <- seq(0,1,length.out = N) # time is normalized to (0,1)
 Mm <- mesh(Data$s,t)
 mx <- Mm$x; my <- Mm$y
@@ -42,5 +44,16 @@ surf3D(mx,my, hatT$TMat, colkey = FALSE ,cex.main=2, xlab="s", ylab="t",
        theta = 45,phi=30,facets = FALSE,bty="g", ticktype = "detailed", 
        main= 'Estimated T(s,t)', scale=TRUE,expand=.7, col=rev(heat.colors(N)))
 par(mfrow=c(1,1))
+
+# trend forecast -----------------------------------------------------------
+source('forecast.trend.R')
+dim(Data$TrendM)
+
+ff <-  Forecast_trend(data=Data$TrendM[,-c(199,200)], h=2)
+# plot the true values and the forecast 
+plot(Data$TrendM[,199], type = 'l', col=1)
+lines(Data$TrendM[,200], col=2)
+lines(ff[,1], col=1, lty = 2)
+lines(ff[,2], col=3, lty = 2)
 
 
