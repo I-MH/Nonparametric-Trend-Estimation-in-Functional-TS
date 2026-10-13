@@ -1,0 +1,226 @@
+---
+title: "Functional trend estimation with ftrend"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Functional trend estimation with ftrend}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 7, fig.height = 4.5)
+library(ftrend)
+```
+
+## Model and estimator
+
+The package implements the estimator of Martínez-Hernández and Genton (2021)
+for the model
+
+$$Y_n(s) = T(s, n/N) + X_n(s), \qquad s \in D,\; n = 1, \dots, N,$$
+
+where $T: D \times [0,1] \to \mathbb{R}$ is a deterministic trend surface and
+$\{X_n\}$ is a zero-mean stationary functional time series. The trend is
+represented as a tensor product of B-splines,
+$T(s, t) = \nu(s)^\top \Theta\, \eta(t)$, and $\Theta$ minimises
+
+$$\sum_{n=1}^N \int_D \{Y_n(s) - \nu(s)^\top \Theta\, \eta(n/N)\}^2\,ds
+  + \lambda_1 \int_0^1\!\!\int_D \Big(\frac{\partial^2 T}{\partial s^2}\Big)^2 ds\,dt
+  + \lambda_2 \int_D\!\int_0^1 \Big(\frac{\partial^2 T}{\partial t^2}\Big)^2 dt\,ds .$$
+
+Internally, $D$ and the time axis are rescaled to $[0, 1]$ and the integral
+over $D$ is approximated by trapezoidal quadrature on each curve. The
+smoothing parameters are selected by REML on marginal means: $\lambda_1$ from
+the mean curve $N^{-1}\sum_n Y_n(s)$ and $\lambda_2$ from the series
+$\int_D Y_n(s)\,ds$ (Section 3.3 of the paper). These marginal rules are
+available as `select = "reml-bspline"` and `select = "reml-supplement"`. By
+default, however, the smoothing parameters are chosen by leave-block-out
+cross-validation over the whole surface (`select = "cv"`): each curve is
+predicted from a fit that leaves out the curves within $l$ time steps of it,
+which removes the bias caused by the serial dependence of $X_n$. Only the
+selection changes; the estimator is the one of the paper (see `?ftrend`).
+
+## A simulated example
+
+`simulate_fts()` generates data as in Section 4 of the paper. Here the trend
+is $T_2(s, t) = 25\,t \sin(2\pi s)$ and $X_n$ is a FAR(1) process with
+Brownian-motion innovations.
+
+```{r sim}
+sim <- simulate_fts(N = 200, m = 50, trend = "T2", norm = 0.5, seed = 1)
+fit <- ftrend(sim$Y, s = sim$s)
+fit
+```
+
+Figure 1 shows the estimated surface, and Figure 2 the trend curves
+$\hat T(\cdot, n/N)$ coloured from early (dark) to late (light) times.
+
+```{r sim-surface, fig.cap = "Figure 1. Estimated trend surface for the simulated data."}
+plot(fit, type = "surface")
+```
+
+```{r sim-curves, fig.cap = "Figure 2. Estimated trend curves for the simulated data."}
+plot(fit, type = "curves")
+```
+
+The integrated squared error against the true trend is
+
+```{r sim-ise}
+ise(sim$trend, predict(fit, s = sim$s), sim$s, sim$t)
+```
+
+`residuals()` returns the detrended series $\tilde X_n(s) = Y_n(s) - \hat
+T(s, n/N)$ in the format of the input (here an $m \times N$ matrix), ready for
+modelling with any method for stationary functional time series.
+
+## Curves observed on different grids
+
+A long data frame with one row per observation, or an `fts_irreg` object,
+allows each curve to have its own evaluation points.
+
+```{r irregular}
+set.seed(2)
+df <- do.call(rbind, lapply(seq_len(ncol(sim$Y)), function(n) {
+  keep <- sort(sample(50, sample(20:40, 1)))
+  data.frame(t = n, s = sim$s[keep], y = sim$Y[keep, n])
+}))
+head(df)
+fit_irr <- ftrend(df, time = "t", arg = "s", value = "y", domain = c(0, 1))
+fit_irr
+ise(sim$trend, predict(fit_irr, s = sim$s, t = 1:200), sim$s, sim$t)
+```
+
+## Annual mortality rates in France
+
+The paper analyses log mortality rates in France for ages 0–100 from 1816 to
+2006. These data are distributed with the `demography` package
+(`fr.mort`), and are also available from the Human Mortality Database
+(<https://www.mortality.org>), which requires registration. The vignette never
+downloads data: it uses `demography::fr.mort` if that package is installed,
+or a local copy of the HMD file `Mx_1x1.txt` for France whose path is given in
+the environment variable `FTREND_HMD_MX`. Otherwise the code below is shown
+but not run.
+
+```{r mortality-data}
+read_hmd_mx <- function(file) {
+  d <- utils::read.table(file, skip = 2, header = TRUE, na.strings = ".",
+                         stringsAsFactors = FALSE)
+  d$Age <- as.integer(sub("+", "", d$Age, fixed = TRUE))
+  years <- sort(unique(d$Year))
+  ages <- sort(unique(d$Age))
+  R <- matrix(NA_real_, length(ages), length(years))
+  R[cbind(match(d$Age, ages), match(d$Year, years))] <- d$Total
+  list(rate = list(total = R), age = ages, year = years)
+}
+
+mort <- NULL
+if (requireNamespace("demography", quietly = TRUE)) {
+  mort <- demography::fr.mort
+} else if (nzchar(Sys.getenv("FTREND_HMD_MX"))) {
+  mort <- read_hmd_mx(Sys.getenv("FTREND_HMD_MX"))
+}
+have_data <- !is.null(mort)
+```
+
+```{r mortality-fit, eval = have_data}
+ages <- 0:100
+years <- 1816:2006
+Ylog <- log(mort$rate$total[match(ages, mort$age), match(years, mort$year)])
+dimnames(Ylog) <- list(ages, years)
+
+# Fit on 1816-2002 and keep 2003-2006 for forecasting, as in Section 5.2
+train <- years <= 2002
+fit_fr <- ftrend(Ylog[, train], s = ages, t = years[train])
+summary(fit_fr)
+```
+
+Figure 3 shows the estimated trend surface and Figure 4 the detrended series
+$\tilde X_n$.
+
+```{r mortality-surface, eval = have_data, fig.cap = "Figure 3. Estimated functional trend of log mortality rates in France, 1816-2002."}
+plot(fit_fr, type = "surface", theta = 40)
+```
+
+```{r mortality-resid, eval = have_data, fig.cap = "Figure 4. Detrended log mortality curves."}
+plot(fit_fr, type = "residuals")
+```
+
+The mean of the detrended curves is a simple diagnostic, since
+$\tilde X_n$ should have mean close to zero for every age. The smoothing
+parameters of the supplementary code are much larger here, and the resulting
+trend misses the steep fall of mortality after birth:
+
+```{r mortality-diagnostic, eval = have_data}
+fit_fr_s <- ftrend(Ylog[, train], s = ages, t = years[train], select = "reml-supplement",
+                   control = ftrend_control(supp_k = "te-default"))
+rbind(cv = fit_fr$lambda, supplement = fit_fr_s$lambda)
+rbind(cv = range(rowMeans(residuals(fit_fr))),
+      supplement = range(rowMeans(residuals(fit_fr_s))))
+```
+
+The remaining bias at age 0 with the default selection comes from the basis:
+ten equally spaced cubic B-splines on ages 0–100 cannot follow the fall of
+mortality in the first years of life.
+
+### Forecasting
+
+Following Section 5 of the paper, the detrended series is projected onto
+$r = 4$ functional principal components, each score series is modelled by an
+ARMA model chosen by AIC, and the forecasts are added to the trend forecast of
+equation (5), $\hat T_{N+h}(s) = \hat T(s, 1) + (h/N)\,\partial_t \hat T(s,
+t)|_{t=1}$. For comparison, the same procedure is applied to the original
+series with ARIMA$(p, 1, q)$ models and no trend. The paper selected the
+models with an automatic ARIMA procedure, so the orders below, and hence the
+errors, may differ slightly from those reported there.
+
+```{r mortality-forecast, eval = have_data}
+fpca_forecast <- function(Z, h, r = 4, d = 0) {
+  mu <- rowMeans(Z)
+  pc <- prcomp(t(Z - mu), center = FALSE)
+  phi <- pc$rotation[, seq_len(r)]
+  scores <- pc$x[, seq_len(r)]
+  orders <- expand.grid(p = 0:3, q = 0:2)
+  fc <- sapply(seq_len(r), function(j) {
+    fits <- lapply(seq_len(nrow(orders)), function(i) tryCatch(
+      arima(scores[, j], order = c(orders$p[i], d, orders$q[i]),
+            include.mean = (d == 0)), error = function(e) NULL))
+    best <- fits[[which.min(sapply(fits, function(f) if (is.null(f)) Inf else AIC(f)))]]
+    predict(best, n.ahead = h)$pred
+  })
+  mu + phi %*% t(matrix(fc, h))
+}
+
+h <- 4
+test <- Ylog[, !train]
+X_tilde <- residuals(fit_fr)
+Yhat_trend <- forecast_trend(fit_fr, h = h, s = ages) + fpca_forecast(X_tilde, h)
+Yhat_none <- fpca_forecast(Ylog[, train], h, d = 1)
+
+# L1 distance on the rescaled domain [0, 1], summed over the four years
+l1 <- function(A, B) sum(colSums(abs(A - B) * ftrend:::quad_weights(ages / 100)))
+c(without_trend = l1(test, Yhat_none), with_trend = l1(test, Yhat_trend))
+```
+
+Figure 5 compares the forecasts with the observed curves.
+
+```{r mortality-forecast-plot, eval = have_data, fig.cap = "Figure 5. Observed log mortality curves 2003-2006 (solid) and forecasts with (dotted) and without (dashed) the functional trend."}
+matplot(ages, test, type = "l", lty = 1, col = "grey30", xlab = "Age",
+        ylab = "log mortality rate")
+matlines(ages, Yhat_trend, lty = 3, col = "firebrick", lwd = 1.5)
+matlines(ages, Yhat_none, lty = 2, col = "darkgreen")
+legend("topleft", c("observed", "with trend", "without trend"),
+       lty = c(1, 3, 2), col = c("grey30", "firebrick", "darkgreen"), bty = "n")
+```
+
+## References
+
+Kokoszka, Piotr, and Gabriel Young. 2017. "Testing Trend Stationarity of
+Functional Time Series with Application to Yield and Daily Price Curves."
+*Statistics and Its Interface* 10 (1): 81–92.
+
+Martínez-Hernández, Israel, and Marc G. Genton. 2021. "Nonparametric Trend
+Estimation in Functional Time Series with Application to Annual Mortality
+Rates." *Biometrics* 77 (3): 866–78.
+
+Wood, Simon N. 2006. "Low-Rank Scale-Invariant Tensor Product Smooths for
+Generalized Additive Mixed Models." *Biometrics* 62 (4): 1025–36.

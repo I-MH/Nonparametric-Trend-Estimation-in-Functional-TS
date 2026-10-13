@@ -1,0 +1,24 @@
+Package: ftrend
+Type: Package
+Title: Nonparametric Trend Estimation in Functional Time Series
+Version: 0.1.0
+Authors@R: person("Israel", "Martínez-Hernández", role = c("aut", "cre"),
+                  email = "i.martinez@lancaster.ac.uk")
+Description: Estimates the deterministic trend T(s, t) of a functional time
+    series Y_n(s) = T(s, n/N) + X_n(s) by a penalised tensor product of
+    B-splines with marginal roughness penalties, as proposed by
+    Martínez-Hernández and Genton (2021) <doi:10.1111/biom.13353>. Curves may
+    be observed on a common grid or on curve-specific grids. Smoothing
+    parameters are selected by restricted maximum likelihood on marginal
+    means.
+License: GPL (>= 2)
+URL: https://github.com/Martinez-Hernandez/Nonparametric-Trend-Estimation-in-Functional-TS
+BugReports: https://github.com/Martinez-Hernandez/Nonparametric-Trend-Estimation-in-Functional-TS/issues
+Encoding: UTF-8
+Depends: R (>= 4.1.0)
+Imports: splines, stats, graphics, grDevices, mgcv, nlme
+Suggests: testthat (>= 3.0.0), knitr, rmarkdown, demography
+Config/testthat/edition: 3
+VignetteBuilder: knitr
+Roxygen: list(markdown = FALSE)
+Config/roxygen2/version: 8.1.1
